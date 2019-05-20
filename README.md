@@ -1,15 +1,7 @@
-# java8 template project
+# java-concurrency project
 
 
+## Additional video lectures.
 
-## Unit tests.
+Based on video lectures from https://learning.oreilly.com/videos/java-concurrency-2-e
 
-```
-mvn clean test
-```
-
-## Integration tests
-
-```
-mvn clean test -P integration
-```
