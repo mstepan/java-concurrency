@@ -4,11 +4,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.invoke.MethodHandles;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Exchanger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 
 final class PingPongMain {
@@ -16,7 +15,7 @@ final class PingPongMain {
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
 
-    private PingPongMain() throws Exception {
+    private PingPongMain() throws InterruptedException {
 
         final int iterationsCount = 10;
 
@@ -24,10 +23,10 @@ final class PingPongMain {
 
         final ExecutorService pool = Executors.newCachedThreadPool();
 
-        final BlockingQueue<Integer> exchangeQueue = new SynchronousQueue<>();
+        final Exchanger<Integer> exchanger = new Exchanger<>();
 
-        pool.submit(new PingTask(iterationsCount, exchangeQueue, exitBarrier));
-        pool.submit(new PongTask(iterationsCount, exchangeQueue, exitBarrier));
+        pool.submit(new PingPongTask("ping", 0, iterationsCount, exchanger, exitBarrier));
+        pool.submit(new PingPongTask("pong", 1, iterationsCount, exchanger, exitBarrier));
 
         exitBarrier.await();
 
@@ -37,28 +36,41 @@ final class PingPongMain {
         LOG.info("Main done... java-" + System.getProperty("java.version"));
     }
 
-    private static final class PingTask implements Runnable {
+    private static final class PingPongTask implements Runnable {
 
+        private final String title;
+        private final int initialValue;
         private final int iterationsCount;
-        private final BlockingQueue<Integer> exchangeQueue;
+        private final Exchanger<Integer> exchanger;
         private final CountDownLatch exitBarrier;
+        private final String separator;
 
-        PingTask(int iterationsCount, BlockingQueue<Integer> exchangeQueue, CountDownLatch exitBarrier) {
+        PingPongTask(String title, int initialValue, int iterationsCount, Exchanger<Integer> exchanger,
+                     CountDownLatch exitBarrier) {
+            this.title = title;
+            this.initialValue = initialValue;
             this.iterationsCount = iterationsCount;
-            this.exchangeQueue = exchangeQueue;
+            this.exchanger = exchanger;
             this.exitBarrier = exitBarrier;
+            this.separator = initialValue == 0 ? "*" : "<<";
         }
 
         @Override
         public void run() {
 
-            LOG.info("Ping started");
+            LOG.info("[{}] {} started", Thread.currentThread().getId(), title);
 
             try {
+
+                int value = initialValue;
+
                 for (int i = 0; i < iterationsCount; ++i) {
-                    LOG.info("Ping *");
-                    exchangeQueue.put(i);
-                    exchangeQueue.take();
+
+                    if( value == 0 ){
+                        LOG.info("[{}] {} {}", Thread.currentThread().getId(), title, separator);
+                    }
+
+                    value = exchanger.exchange(value);
                 }
             }
             catch (InterruptedException interEx) {
@@ -66,42 +78,7 @@ final class PingPongMain {
                 LOG.error(interEx.getMessage(), interEx);
             }
             finally {
-                LOG.info("Ping completed");
-                exitBarrier.countDown();
-            }
-        }
-    }
-
-    private static final class PongTask implements Runnable {
-
-        private final int iterationsCount;
-        private final BlockingQueue<Integer> exchangeQueue;
-        private final CountDownLatch exitBarrier;
-
-        PongTask(int iterationsCount, BlockingQueue<Integer> exchangeQueue, CountDownLatch exitBarrier) {
-            this.iterationsCount = iterationsCount;
-            this.exchangeQueue = exchangeQueue;
-            this.exitBarrier = exitBarrier;
-        }
-
-        @Override
-        public void run() {
-
-            LOG.info("Pong started");
-
-            try {
-                for (int i = 0; i < iterationsCount; ++i) {
-                    exchangeQueue.take();
-                    LOG.info("Pong <<");
-                    exchangeQueue.put(i);
-                }
-            }
-            catch (InterruptedException interEx) {
-                Thread.currentThread().interrupt();
-                LOG.error(interEx.getMessage(), interEx);
-            }
-            finally {
-                LOG.info("Pong completed");
+                LOG.info("[{}] {} completed", Thread.currentThread().getId(), title);
                 exitBarrier.countDown();
             }
         }
